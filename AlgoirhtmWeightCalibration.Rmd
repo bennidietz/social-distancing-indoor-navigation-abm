@@ -1,0 +1,161 @@
+---
+title: "AlgorithmWeightCalibration"
+author: "Benajmin Dietz"
+date: "2/9/2022"
+output: html_document
+---
+
+## Setup:
+```{r}
+library(Rcpp)
+library(nlrx)
+
+# setup development environment
+folderDir = dirname(rstudioapi::getActiveDocumentContext()$path)
+setwd(folderDir) 
+modelpath <- file.path(folderDir, "social-distance-indoor-simulation.nlogo")
+
+# Replace with own path:
+netlogopath <- file.path("/Users/benjamindietz/Applications/NetLogo\ 6.0.4/")
+```
+
+
+## Parameters:
+```{r}
+open_gate_period = 600
+dt = 0.1
+passengers_nb = 95
+birth_tick_period = 3.2
+random_path = "false"
+include_sensors = "true"
+social_force_radius = 1.5
+social_force_weight = 1.0
+critical_period = 60
+```
+
+```{r}
+nl1 <- nl(nlversion = "6.0.4", nlpath = netlogopath, modelpath = modelpath, jvmmem = 1024)
+  
+constantsAirport = list(
+  "airport-environment?" = "true", "dt" = dt, 
+  
+  # entry
+  "c-birth-nb" = 1, "birth-tick-period" = birth_tick_period, 'navigation-system-rate' = 0.5,
+  
+  "open-gate?" = "true", "open-gate-period" = open_gate_period,  "passengers-nb" = passengers_nb,
+  
+  # agent base movement
+  "maximum-speed" = 1.5, "Tr" = 0.5,
+  "social-force-radius" = social_force_radius, "social-force-weight" = social_force_weight, "keeping-sd-rate" = 35.3,
+  "wall-force-radius" = 2.0, "wall-force-weight" = 1.0,
+  
+  # path generation
+  "random-path?" = random_path, "easiest?" = "true",
+  
+  # mobile navigation system
+  "include-sensors?" = include_sensors, # to investigate
+  "expected?" = "true",
+  
+  # proximity decision points
+  "decision-point-radius" = 2.5, "destination-reached-radius" = 3.5,
+  
+  # evaluation
+  "social-distancing-radius" = 1.5, "critical-period" = critical_period,
+  
+  # debugging
+  "logs?" = "false",  "show-paths?" = "false", "show-decision-points?" = "false",  "show-dp-labels?" = "false",  "show-turtle-labels?" = "false", "performance-debugging?" = "false", "visualize?" = "false", "Nb-peds" = 40, "continuous-birth?" = "true"
+)
+
+constantsHospital = list(
+  "airport-environment" = "false", "dt" = 0.10,
+  
+  # entry
+  "c-birth-nb" = 1, "birth-tick-period" = 10, "entrance-open-period" = 800,
+  
+  "open-gate?" = "false", "open-gate-period" = 100, "passengers-nb" = 30,
+  
+  # agent base movement
+  "maximum-speed" = 1, "Tr" = 0.5,
+  "social-force-weight" = 0.9, "social-force-radius" = 1.5,
+  "wall-force-radius" = 0.5,"wall-force-weight" = 0.7,
+  
+  # path generation
+  "random-path?" = "false", "easiest?" = "true",
+  
+  # mobile navigation system
+  "include-sensors?" = "false",
+  "expected?" = "true",
+  
+  # proximity decision points
+  "decision-point-radius" = 2.5, "destination-reached-radius" = 1.2,
+  
+  # evaluation
+  "social-distancing-radius" = 1.5,
+  
+  # debugging
+  "logs?" = "false", "show-paths?" = "false", "show-decision-points?" = "false", "show-dp-labels?" = "false", "show-turtle-labels?" = "false", "Nb-peds" = 40, "continuous-birth?" = "true"
+)
+
+# outputs columns
+outputs = c(
+  "round entire-contacts-nb / 2",
+  "round critical-contacts-nb / 2"
+)
+
+# variables that take on different values for different trials
+variables = list(
+  "expected-weight" = list(values = c(0, 0.2, 0.4, 0.6, 0.8, 1))
+)
+
+nl1@experiment <- experiment(
+  expname = "social-distance-indoor-simulation", outpath = getwd(), repetition = 1,
+  idsetup = "setup", idgo = "move", metrics = outputs, variables = variables, constants = constantsAirport,
+  # output measured on every tick or on final tick only?
+  tickmetrics = "false",
+  # maximum number of ticks that should be simulated; 0 = inifinite
+  runtime = 36000,
+  evalticks = seq(36000),
+)
+
+nl1@simdesign <- simdesign_distinct(nl = nl1, nseeds = 10)
+```
+
+# Run experiements
+```{r}
+results_x <- run_nl_all(nl1)
+
+# Attach results to nl object:
+setsim(nl1, "simoutput") <- results_x
+
+# Write output to outpath of experiment within nl (CSV file)
+write_simoutput(nl1)
+
+# save as R data
+save(nl1, file = paste0(paste0(paste(format(Sys.time(), "%c"), ".RData", sep=""))))
+```
+
+# Visualize results:
+```{r}
+plot(nl1@simdesign@simoutput$`expected-weight`,
+    nl1@simdesign@simoutput$`round entire-contacts-nb / 2`, 
+    xlab = expression("w"[E]),
+    ylab = "Number of all contacts",
+    main = "All contacts",
+    type="p"
+)
+plot(nl1@simdesign@simoutput$`expected-weight`,
+    nl1@simdesign@simoutput$`round critical-contacts-nb / 2`,
+    xlab = expression("w"[E]),
+    ylab = "Number of long contacts",
+    main = "Contacts lasting 60 seconds or more",
+    type="p"
+)
+boxplot(nl1@simdesign@simoutput$`round critical-contacts-nb / 2` ~ nl1@simdesign@simoutput$`expected-weight`,
+    xlab = expression("w"[E]),
+    ylab = "Number of long contacts",
+    main = "Contacts lasting 60 seconds or more")
+boxplot(nl1@simdesign@simoutput$`round entire-contacts-nb / 2` ~ nl1@simdesign@simoutput$`expected-weight`,
+    xlab = expression("w"[E]),
+    ylab = "Number of all contacts",
+    main = "All contacts")
+```

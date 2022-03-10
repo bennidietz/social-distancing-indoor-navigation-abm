@@ -1,0 +1,117 @@
+---
+title: "Sensitvity Analysis Airport"
+author: "Benjamin Dietz"
+date: "2/9/2022"
+output: html_document
+---
+
+
+## Setup:
+```{r}
+library(Rcpp)
+library(nlrx)
+
+# setup development environment
+folderDir = dirname(rstudioapi::getActiveDocumentContext()$path)
+setwd(folderDir)
+modelpath <- file.path(folderDir, "social-distance-indoor-simulation.nlogo")
+
+# Replace with own path:
+netlogopath <- file.path("/Users/benjamindietz/Applications/NetLogo\ 6.0.4/")
+```
+
+
+## Parameters:
+```{r}
+open_gate_period = 600
+dt = 0.1
+random_path = "false"
+include_sensors = "true"
+social_force_radius = 1.5
+social_force_weight = 1.0
+critical_period = 5
+```
+
+```{r}
+nl1 <- nl(nlversion = "6.0.4", nlpath = netlogopath, modelpath = modelpath, jvmmem = 1024)
+  
+constantsAirport = list(
+  "airport-environment?" = "true", "dt" = dt, 
+  
+  # entry
+  "c-birth-nb" = 1,
+  
+  "open-gate?" = "true", "open-gate-period" = open_gate_period,
+  
+  # agent base movement
+  "maximum-speed" = 1.5, "Tr" = 0.5,
+  "social-force-radius" = social_force_radius, "social-force-weight" = social_force_weight,
+  "wall-force-radius" = 2.0, "wall-force-weight" = 1.0,
+  
+  # path generation
+  "random-path?" = random_path, "easiest?" = "true", "navigation-system-rate" = 0.5, "expected-weight" = 0.4,
+  
+  # mobile navigation system
+  "include-sensors?" = include_sensors, # to investigate
+  "expected?" = "true",
+  
+  # proximity decision points
+  "destination-reached-radius" = 3.5, #"decision-point-radius" = 2.0,
+  "social-distancing-radius" = 1.5,
+  
+  # evaluation
+  "critical-period" = critical_period,
+  
+  # debugging
+  "logs?" = "false",  "show-paths?" = "false", "show-decision-points?" = "false",  "show-dp-labels?" = "false",  "show-turtle-labels?" = "false", "performance-debugging?" = "false", "visualize?" = "false", "Nb-peds" = 40, "continuous-birth?" = "true"
+)
+
+# outputs columns
+outputs = c(
+  "average-contact-nb"
+)
+
+# variables that take on different values for different trials
+variables = list(
+  "birth-tick-period" = list(min = 2.5, max = 5, qfun="qunif"),
+  "keeping-sd-rate" = list(min = 0, max = 100, qfun="qunif"),
+  "decision-point-radius" = list(min = 1.5, max = 3.5, qfun="qunif")
+)
+
+nl1@experiment <- experiment(
+  expname = "social-distance-indoor-simulation", outpath = getwd(), repetition = 1,
+  idsetup = "setup", idgo = "move", metrics = outputs, variables = variables, constants = constantsAirport,
+  # output measured on every tick or on final tick only?
+  tickmetrics = "false",
+  runtime = 36000,
+  evalticks = seq(36000),
+)
+```
+
+
+```{r}
+nl1@simdesign <- simdesign_morris(nl = nl1,
+                                  morristype = "oat",
+                                  morrislevels = 4,
+                                  morrisr = 4,
+                                  morrisgridjump = 1000,
+                                  nseeds = 5)
+
+results_x <- run_nl_all(nl1)
+```
+
+
+```{r}
+
+setsim(nl1, "simoutput") <- results_x
+saveRDS(nl1, file.path(nl1@experiment@outpath, "sobol"))
+        
+sobol <- analyze_nl(nl1)
+```
+
+
+```{r}
+mustar = sobol[sobol$index=="mustar",]
+
+mustar
+```

@@ -1,0 +1,211 @@
+---
+title: "Analysis Hospital"
+author: "Benjamin Dietz"
+date: "2/11/2022"
+output: html_document
+---
+
+
+## Setup:
+```{r}
+library(Rcpp)
+library(nlrx)
+
+# setup development environment
+folderDir = dirname(rstudioapi::getActiveDocumentContext()$path)
+setwd(folderDir)
+modelpath <- file.path(folderDir, "social-distance-indoor-simulation.nlogo")
+
+# Replace with own path:
+netlogopath <- file.path("/Users/benjamindietz/Applications/NetLogo\ 6.0.4/")
+```
+
+
+## Parameters:
+```{r}
+open_gate_period = 600
+dt = 0.1
+passengers_nb = 95
+random_path = "false"
+birth_tick_period = 180
+social_force_radius = 1.5
+social_force_weight = 1.0
+critical_period = 60
+```
+
+```{r}
+nl1 <- nl(nlversion = "6.0.4", nlpath = netlogopath, modelpath = modelpath, jvmmem = 1024)
+nl2 <- nl(nlversion = "6.0.4", nlpath = netlogopath, modelpath = modelpath, jvmmem = 1024)
+  
+constantsSensorHospital = list(
+  "airport-environment?" = "false", "dt" = dt, 
+  
+  # entry
+  "c-birth-nb" = 1,
+  
+  "open-gate?" = "true", "open-gate-period" = open_gate_period,   "passengers-nb" = passengers_nb, "birth-tick-period" = birth_tick_period, 
+  
+  # agent base movement
+  "maximum-speed" = 1.5, "Tr" = 0.5, "keeping-sd-rate" = 35.3,
+  "social-force-radius" = social_force_radius, "social-force-weight" = social_force_weight,
+  "wall-force-radius" = 0.5, "wall-force-weight" = 0.8,
+  
+  # path generation
+  "random-path?" = random_path, "easiest?" = "true", "expected-weight" = 0.4,
+  
+  # mobile navigation system
+  "include-sensors?" = "true",
+  "expected?" = "true",
+  
+  # proximity decision points
+  "decision-point-radius" = 2.5, "destination-reached-radius" = 3.5,
+  
+  # evaluation
+  "social-distancing-radius" = 1.5, "critical-period" = critical_period,
+  
+  # debugging
+  "logs?" = "false",  "show-paths?" = "false", "show-decision-points?" = "false",  "show-dp-labels?" = "false",  "show-turtle-labels?" = "false", "performance-debugging?" = "false", "visualize?" = "false", "Nb-peds" = 40, "continuous-birth?" = "true"
+)
+
+constantsWithoutSensorHospital = list(
+  "airport-environment?" = "false", "dt" = dt, 
+  
+  # entry
+  "c-birth-nb" = 1,
+  
+  "open-gate?" = "true", "open-gate-period" = open_gate_period,   "passengers-nb" = passengers_nb, "birth-tick-period" = birth_tick_period, 
+  
+  # agent base movement
+  "maximum-speed" = 1.5, "Tr" = 0.5, "keeping-sd-rate" = 35.3,
+  "social-force-radius" = social_force_radius, "social-force-weight" = social_force_weight,
+  "wall-force-radius" = 0.5, "wall-force-weight" = 0.8,
+  
+  # path generation
+  "random-path?" = random_path, "easiest?" = "true", "expected-weight" = 0.4,
+  
+  # mobile navigation system
+  "include-sensors?" = "false",
+  "expected?" = "true",
+  
+  # proximity decision points
+  "decision-point-radius" = 2.5, "destination-reached-radius" = 3.5,
+  
+  # evaluation
+  "social-distancing-radius" = 1.5, "critical-period" = critical_period,
+  
+  # debugging
+  "logs?" = "false",  "show-paths?" = "false", "show-decision-points?" = "false",  "show-dp-labels?" = "false",  "show-turtle-labels?" = "false", "performance-debugging?" = "false", "visualize?" = "false", "Nb-peds" = 40, "continuous-birth?" = "true"
+)
+
+# outputs columns
+outputs = c(
+  "round entire-contacts-nb / 2",
+  "round critical-contacts-nb / 2"
+)
+
+# variables that take on different values for different trials
+variables = list(
+  "navigation-system-rate" = list(values = c(0, 0.2, 0.4, 0.6, 0.8, 1))
+)
+
+nl1@experiment <- experiment(
+  expname = "social-distance-indoor-simulation", outpath = getwd(), repetition = 1,
+  idsetup = "setup", idgo = "move", metrics = outputs, variables = variables, constants = constantsSensorHospital,
+  # output measured on every tick or on final tick only?
+  tickmetrics = "false",
+  runtime = 36000,
+  evalticks = seq(36000),
+)
+nl2@experiment <- experiment(
+  expname = "social-distance-indoor-simulation", outpath = getwd(), repetition = 1,
+  idsetup = "setup", idgo = "move", metrics = outputs, variables = variables, constants = constantsWithoutSensorHospital,
+  # output measured on every tick or on final tick only?
+  tickmetrics = "false",
+  runtime = 36000,
+  evalticks = seq(36000),
+)
+```
+
+
+```{r}
+nl1@simdesign <- simdesign_distinct(nl = nl1, nseeds = 8)
+nl2@simdesign <- simdesign_distinct(nl = nl2, nseeds = 8)
+
+results_x <- run_nl_all(nl1)
+results_x2 <- run_nl_all(nl2)
+```
+
+
+```{r}
+
+setsim(nl1, "simoutput") <- results_x
+setsim(nl2, "simoutput") <- results_x2
+saveRDS(nl1, file.path(nl1@experiment@outpath, "lhsWithSensors"))
+saveRDS(nl2, file.path(nl2@experiment@outpath, "lhsWithoutSensors"))
+```
+
+# Plot restults with sensors:
+```{r}
+nl1@simdesign@simoutput$`navigation-system-rate` = nl1@simdesign@simoutput$`navigation-system-rate` * 100
+plot(nl1@simdesign@simoutput$`navigation-system-rate`,
+    nl1@simdesign@simoutput$`round entire-contacts-nb / 2`, 
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of all contacts",
+    main = "With sensors: All contacts",
+    type="p"
+)
+plot(nl1@simdesign@simoutput$`navigation-system-rate`,
+    nl1@simdesign@simoutput$`round critical-contacts-nb / 2`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of long contacts",
+    main = "With sensors: Contacts lasting 60 seconds or more",
+    type="p"
+)
+boxplot(nl1@simdesign@simoutput$`round critical-contacts-nb / 2` ~ nl1@simdesign@simoutput$`navigation-system-rate`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of long contacts",
+    main = "With sensors: Contacts lasting 60 seconds or more")
+boxplot(nl1@simdesign@simoutput$`round entire-contacts-nb / 2` ~ nl1@simdesign@simoutput$`navigation-system-rate`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of all contacts",
+    main = "With sensors: All contacts")
+```
+
+# Test results with sensors for correlation:
+```{r}
+cor.test(nl1@simdesign@simoutput$`navigation-system-rate`, nl1@simdesign@simoutput$`round entire-contacts-nb / 2`)
+cor.test(nl1@simdesign@simoutput$`navigation-system-rate`, nl1@simdesign@simoutput$`round critical-contacts-nb / 2`)
+```
+
+# Results without sensors:
+```{r}
+nl2@simdesign@simoutput$`navigation-system-rate` = nl2@simdesign@simoutput$`navigation-system-rate` * 100
+plot(nl2@simdesign@simoutput$`navigation-system-rate`,
+    nl2@simdesign@simoutput$`round entire-contacts-nb / 2`, 
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of all contacts",
+    main = "Without sensors: All contacts",
+    type="p"
+)
+plot(nl2@simdesign@simoutput$`navigation-system-rate`,
+    nl2@simdesign@simoutput$`round critical-contacts-nb / 2`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of long contacts",
+    main = "Without sensors: Contacts lasting 60 seconds or more",
+    type="p"
+)
+boxplot(nl2@simdesign@simoutput$`round critical-contacts-nb / 2` ~ nl2@simdesign@simoutput$`navigation-system-rate`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of long contacts",
+    main = "Without sensors: Contacts lasting 60 seconds or more")
+boxplot(nl2@simdesign@simoutput$`round entire-contacts-nb / 2` ~ nl2@simdesign@simoutput$`navigation-system-rate`,
+    xlab = "Agents using the mobile navigation system (in %)",
+    ylab = "Number of all contacts",
+    main = "Without sensors: All contacts")
+```
+
+# Test results without sensors for correlation:
+```{r}
+cor.test(nl2@simdesign@simoutput$`navigation-system-rate`, nl2@simdesign@simoutput$`round entire-contacts-nb / 2`)
+cor.test(nl2@simdesign@simoutput$`navigation-system-rate`, nl2@simdesign@simoutput$`round critical-contacts-nb / 2`)
+```
